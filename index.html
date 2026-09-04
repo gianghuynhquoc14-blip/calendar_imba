@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Бронь съемок | ИМБА</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --container-bg: #1e1e1e;
+            --text-main: #ffffff;
+            --text-muted: #a0a0a0;
+            --accent: #ff4757; /* Красный акцент Имбы */
+            --accent-hover: #ff6b81;
+            --input-bg: #2d2d2d;
+            --border: #3d3d3d;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+        .container { background: var(--container-bg); padding: 30px; border-radius: 16px; width: 100%; max-width: 450px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border); }
+        h1 { text-align: center; margin-bottom: 10px; font-size: 24px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+        p.subtitle { text-align: center; color: var(--text-muted); margin-bottom: 25px; font-size: 14px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: var(--text-muted); }
+        input, select { width: 100%; padding: 14px; background: var(--input-bg); border: 1px solid var(--border); color: var(--text-main); border-radius: 8px; font-size: 16px; transition: border-color 0.2s; outline: none; appearance: none; }
+        input:focus, select:focus { border-color: var(--accent); }
+        button { width: 100%; padding: 16px; background: var(--accent); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; text-transform: uppercase; cursor: pointer; transition: background 0.2s; margin-top: 10px; }
+        button:hover { background: var(--accent-hover); }
+        button:disabled { background: #555; cursor: not-allowed; }
+        .status-msg { text-align: center; margin-top: 15px; font-size: 14px; display: none; }
+        .success { color: #2ed573; }
+        .error { color: #ff4757; }
+        .loading { text-align: center; color: var(--text-muted); font-size: 14px; padding: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>График съемок</h1>
+    <p class="subtitle">Выберите свободную дату для вашего класса</p>
+
+    <form id="bookingForm">
+        <div class="form-group">
+            <label for="dateSelect">Свободные даты</label>
+            <div id="loader" class="loading">⏳ Загрузка расписания...</div>
+            <select id="dateSelect" required style="display: none;">
+                <option value="" disabled selected>Выберите дату...</option>
+                <!-- Даты будут загружены сюда из n8n -->
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="contactName">Ваше имя (Родком)</label>
+            <input type="text" id="contactName" placeholder="Например: Анна" required>
+        </div>
+
+        <div class="form-group">
+            <label for="schoolInfo">Школа и класс</label>
+            <input type="text" id="schoolInfo" placeholder="Например: Школа 13, 11-Б" required>
+        </div>
+
+        <div class="form-group">
+            <label for="phone">Телефон (WhatsApp)</label>
+            <input type="tel" id="phone" placeholder="+7 (999) 000-00-00" required>
+        </div>
+
+        <button type="submit" id="submitBtn" disabled>Забронировать день</button>
+        <div id="statusMessage" class="status-msg"></div>
+    </form>
+</div>
+
+<script>
+    // Вставь сюда ссылки на свои вебхуки из n8n (Production URL)
+    const GET_DATES_WEBHOOK = 'https://ТВОЙ_N8N_ДОМЕН/webhook/get-dates'; 
+    const POST_BOOKING_WEBHOOK = 'https://ТВОЙ_N8N_ДОМЕН/webhook/post-booking';
+
+    const dateSelect = document.getElementById('dateSelect');
+    const submitBtn = document.getElementById('submitBtn');
+    const loader = document.getElementById('loader');
+    const form = document.getElementById('bookingForm');
+    const statusMessage = document.getElementById('statusMessage');
+
+    // Загрузка свободных дат
+    async function loadDates() {
+        try {
+            const response = await fetch(GET_DATES_WEBHOOK);
+            if (!response.ok) throw new Error('Ошибка сервера');
+            const dates = await response.json(); 
+            
+            if(dates.length === 0) {
+                loader.textContent = 'К сожалению, все даты заняты.';
+                return;
+            }
+
+            dates.forEach(dateObj => {
+                const option = document.createElement('option');
+                option.value = dateObj.date; // То, что уйдет в базу (например, "15 октября")
+                option.textContent = dateObj.date; 
+                dateSelect.appendChild(option);
+            });
+
+            loader.style.display = 'none';
+            dateSelect.style.display = 'block';
+            submitBtn.disabled = false;
+        } catch (error) {
+            loader.textContent = 'Не удалось загрузить график. Попробуйте позже.';
+            console.error('Ошибка:', error);
+        }
+    }
+
+    // Отправка формы
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'ОТПРАВКА...';
+        statusMessage.style.display = 'none';
+
+        const payload = {
+            date: dateSelect.value,
+            name: document.getElementById('contactName').value,
+            school: document.getElementById('schoolInfo').value,
+            phone: document.getElementById('phone').value
+        };
+
+        try {
+            const response = await fetch(POST_BOOKING_WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                form.reset();
+                dateSelect.style.display = 'none';
+                statusMessage.textContent = '✅ Заявка отправлена! Администратор свяжется с вами.';
+                statusMessage.className = 'status-msg success';
+                statusMessage.style.display = 'block';
+                submitBtn.style.display = 'none';
+            } else {
+                throw new Error('Ошибка отправки');
+            }
+        } catch (error) {
+            statusMessage.textContent = '❌ Ошибка при отправке. Попробуйте еще раз.';
+            statusMessage.className = 'status-msg error';
+            statusMessage.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'ЗАБРОНИРОВАТЬ ДЕНЬ';
+        }
+    });
+
+    // Запуск при загрузке страницы
+    loadDates();
+</script>
+</body>
+</html>
